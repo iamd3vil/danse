@@ -6,5 +6,5 @@ This would allow any application which doesn't support DoH still use DoH. Danse 
 
 ## TODO
 
-- [ ] Caching
+- [X] Caching
 - [ ] Load Balance to multiple DoH providers for improved privacy
