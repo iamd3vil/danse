@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
 	"flag"
 	"fmt"
 	"log"
@@ -10,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dgraph-io/badger"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/miekg/dns"
 )
 
@@ -19,31 +17,21 @@ const cloudflareDNSURL = "https://cloudflare-dns.com/dns-query"
 type env struct {
 	httpClient *http.Client
 	url        string
-	db         *badger.DB
+	cache      *lru.Cache
 }
 
 func main() {
 	port := flag.String("port", "53", "Port for DNS server")
 	url := flag.String("url", cloudflareDNSURL, "URL for DoH resolver")
 	addr := flag.String("addr", "127.0.0.1", "Address to bind")
-	cachePath := flag.String("cache", "/tmp/danse/", "Path for storing cache for Danse")
 
 	flag.Parse()
 
-	opts := badger.DefaultOptions
-	opts.Dir = *cachePath
-	opts.ValueDir = *cachePath
-	db, err := badger.Open(opts)
+	// Initialize cache
+	cache, err := lru.New(512)
 	if err != nil {
-		log.Fatalln("Couldn't create cache in /tmp/danse")
+		log.Fatalln("Couldn't create cache: ", err)
 	}
-
-	defer db.Close()
-
-	// Clear DB before starting the server
-	db.DropAll()
-	// Schedule a GC for badger at a periodic interval
-	go runGC(db)
 
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
@@ -51,88 +39,55 @@ func main() {
 
 	dnsServer := &dns.Server{Addr: fmt.Sprintf("%s:%s", *addr, *port), Net: "udp"}
 
-	e := env{httpClient: httpClient, url: *url, db: db}
+	e := env{httpClient: httpClient, url: *url, cache: cache}
 
 	dns.HandleFunc(".", e.handleDNS)
 
 	log.Fatalln(dnsServer.ListenAndServe())
-
 }
 
 func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Println("Got DNS query for ", r.Question[0].String())
 
-	// Check in cache if it exists
-	err := e.db.Update(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(r.Question[0].String()))
-		if err != nil && err != badger.ErrKeyNotFound {
-			log.Printf("Error: %v", err)
-			return err
-		}
+	cacheKey := r.Question[0].String()
 
-		if err == badger.ErrKeyNotFound {
-			respMsg, err := GetDNSResponse(r, e.httpClient, e.url)
-			if err != nil {
-				log.Printf("Something wrong with resp: %v", err)
-				return err
-			}
-
-			// Put in cache
-			key := r.Question[0].String()
-
-			// Get minimum TTL of all the records
-			ttl := minTTL(respMsg)
-
-			respPacked, err := respMsg.Pack()
-			if err != nil {
-				return err
-			}
-
-			dnsCache := DNSCache{Msg: respPacked, CreatedAt: time.Now()}
-
-			var packed bytes.Buffer
-
-			// Serializing the response to store in Badger
-			err = gob.NewEncoder(&packed).Encode(&dnsCache)
-			if err != nil {
-				return err
-			}
-
-			err = txn.SetWithTTL([]byte(key), packed.Bytes(), ttl)
-			if err != nil {
-				log.Printf("Couldn't save to cache because: %v", err)
-			}
-
-			w.WriteMsg(respMsg)
-			return nil
-		}
-
-		resp, err := item.ValueCopy(nil)
-		if err != nil {
-			return err
-		}
-
-		// DNSCache stored in badger
-		cResp := &DNSCache{}
-		err = gob.NewDecoder(bytes.NewBuffer(resp)).Decode(cResp)
-		if err != nil {
-			return err
-		}
-		respMsg := &dns.Msg{}
-		err = respMsg.Unpack(cResp.Msg)
-		if err != nil {
-			return err
-		}
-		// Set ID of the response to request ID
-		respMsg.MsgHdr.Id = r.MsgHdr.Id
-
-		// Adjust TTL according to the current time
-		w.WriteMsg(adjustTTL(respMsg, cResp.CreatedAt))
-		return nil
-	})
-	if err != nil {
-		log.Printf("Error in handle DNS: %v", err)
+	// Check if the key is already in cache
+	val, ok := e.cache.Get(cacheKey)
+	if !ok {
+		e.getAndSendResponse(w, r, cacheKey)
+		return
 	}
+
+	cResp := val.(DNSCache)
+
+	// Check if this record is expired
+	ttl := minTTL(cResp.Msg)
+
+	if time.Now().Sub(cResp.CreatedAt) > ttl {
+		e.getAndSendResponse(w, r, cacheKey)
+		return
+	}
+
+	resp := cResp.Msg
+
+	resp.MsgHdr.Id = r.MsgHdr.Id
+
+	w.WriteMsg(adjustTTL(resp, cResp.CreatedAt))
+	return
+}
+
+func (e *env) getAndSendResponse(w dns.ResponseWriter, r *dns.Msg, cacheKey string) {
+	respMsg, err := GetDNSResponse(r, e.httpClient, e.url)
+	if err != nil {
+		log.Printf("Something wrong with resp: %v", err)
+		return
+	}
+
+	// Put it in cache
+	dnsCache := DNSCache{Msg: respMsg, CreatedAt: time.Now()}
+	e.cache.Add(cacheKey, dnsCache)
+
+	w.WriteMsg(respMsg)
 }
 
 func minTTL(m *dns.Msg) time.Duration {
@@ -146,15 +101,6 @@ func minTTL(m *dns.Msg) time.Duration {
 		return time.Duration(ttl) * time.Second
 	}
 	return 0
-}
-
-func runGC(db *badger.DB) {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		db.RunValueLogGC(0.7)
-		log.Printf("Ran badger GC")
-	}
 }
 
 func adjustTTL(m *dns.Msg, createdAt time.Time) *dns.Msg {

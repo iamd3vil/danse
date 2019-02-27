@@ -13,7 +13,7 @@ import (
 
 // DNSCache is serialized and stored in the cache
 type DNSCache struct {
-	Msg       []byte
+	Msg       *dns.Msg
 	CreatedAt time.Time
 }
 
