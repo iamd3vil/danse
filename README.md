@@ -4,6 +4,18 @@ Danse is a DNS resolver which receives packets over conventional DNS(UDP) and re
 
 This would allow any application which doesn't support DoH still use DoH. Danse is supposed to be run locally or on a local network. There is no point running this over internet since DNS queries then wouldn't be encrypted between your device and Danse.
 
+## Usage
+
+```
+Usage of danse:
+  -addr string
+        Address to bind (default "127.0.0.1")
+  -port string
+        Port for DNS server (default "53")
+  -url string
+        URL for DoH resolver (default "https://cloudflare-dns.com/dns-query")
+```
+
 ## TODO
 
 - [X] Caching
