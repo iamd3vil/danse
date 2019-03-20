@@ -19,4 +19,4 @@ Usage of danse:
 ## TODO
 
 - [X] Caching
-- [ ] Load Balance to multiple DoH providers for improved privacy
+- [X] Load Balance to multiple DoH providers for improved privacy
