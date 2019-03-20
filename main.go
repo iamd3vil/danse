@@ -6,6 +6,8 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
@@ -16,14 +18,16 @@ const cloudflareDNSURL = "https://cloudflare-dns.com/dns-query"
 
 type env struct {
 	httpClient *http.Client
-	url        string
+	dnsUrls    *dnsURLs
 	cache      *lru.Cache
+	shdCache   bool // Should we cache DNS responses or not
 }
 
 func main() {
 	port := flag.String("port", "53", "Port for DNS server")
-	url := flag.String("url", cloudflareDNSURL, "URL for DoH resolver")
+	urls := flag.String("url", cloudflareDNSURL, "URL for DoH resolver")
 	addr := flag.String("addr", "127.0.0.1", "Address to bind")
+	shdCache := flag.Bool("cache", false, "DNS response caching")
 
 	flag.Parse()
 
@@ -39,7 +43,12 @@ func main() {
 
 	dnsServer := &dns.Server{Addr: fmt.Sprintf("%s:%s", *addr, *port), Net: "udp"}
 
-	e := env{httpClient: httpClient, url: *url, cache: cache}
+	dnsurls := &dnsURLs{
+		urls: strings.Split(*urls, ","),
+		lock: new(sync.Mutex),
+	}
+
+	e := env{httpClient: httpClient, dnsUrls: dnsurls, cache: cache, shdCache: *shdCache}
 
 	dns.HandleFunc(".", e.handleDNS)
 
@@ -50,6 +59,11 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Println("Got DNS query for ", r.Question[0].String())
 
 	cacheKey := r.Question[0].String()
+	// Check if we should check cache or not
+	if !e.shdCache {
+		e.getAndSendResponse(w, r, cacheKey)
+		return
+	}
 
 	// Check if the key is already in cache
 	val, ok := e.cache.Get(cacheKey)
@@ -77,15 +91,17 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (e *env) getAndSendResponse(w dns.ResponseWriter, r *dns.Msg, cacheKey string) {
-	respMsg, err := GetDNSResponse(r, e.httpClient, e.url)
+	respMsg, err := GetDNSResponse(r, e.httpClient, e.dnsUrls)
 	if err != nil {
 		log.Printf("Something wrong with resp: %v", err)
 		return
 	}
 
 	// Put it in cache
-	dnsCache := DNSCache{Msg: respMsg, CreatedAt: time.Now()}
-	e.cache.Add(cacheKey, dnsCache)
+	if e.shdCache {
+		dnsCache := DNSCache{Msg: respMsg, CreatedAt: time.Now()}
+		e.cache.Add(cacheKey, dnsCache)
+	}
 
 	w.WriteMsg(respMsg)
 }
