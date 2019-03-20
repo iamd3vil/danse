@@ -7,13 +7,15 @@ This would allow any application which doesn't support DoH still use DoH. Danse 
 ## Usage
 
 ```
-Usage of danse:
+Usage of ./danse:
   -addr string
         Address to bind (default "127.0.0.1")
+  -cache
+        DNS response caching
   -port string
         Port for DNS server (default "53")
   -url string
-        URL for DoH resolver (default "https://cloudflare-dns.com/dns-query")
+        URLs for DoH resolvers seperated by comma (default "https://cloudflare-dns.com/dns-query")
 ```
 
 ## TODO
