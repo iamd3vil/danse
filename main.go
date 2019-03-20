@@ -25,7 +25,7 @@ type env struct {
 
 func main() {
 	port := flag.String("port", "53", "Port for DNS server")
-	urls := flag.String("url", cloudflareDNSURL, "URL for DoH resolver")
+	urls := flag.String("url", cloudflareDNSURL, "URLs for DoH resolvers seperated by comma")
 	addr := flag.String("addr", "127.0.0.1", "Address to bind")
 	shdCache := flag.Bool("cache", false, "DNS response caching")
 
