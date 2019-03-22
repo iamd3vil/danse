@@ -39,7 +39,18 @@ func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.M
 
 	durls.lock.Lock()
 
-	resp, err := httpClient.Post(durls.urls[durls.lIndex], "application/dns-message", bytes.NewBuffer(b))
+	url := durls.urls[durls.lIndex]
+
+	// Increase last index
+	durls.lIndex++
+
+	if durls.lIndex == len(durls.urls) {
+		durls.lIndex = 0
+	}
+
+	durls.lock.Unlock()
+
+	resp, err := httpClient.Post(url, "application/dns-message", bytes.NewBuffer(b))
 	if err != nil {
 		return &dns.Msg{}, err
 	}
@@ -55,15 +66,6 @@ func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.M
 
 	r := &dns.Msg{}
 	err = r.Unpack(body)
-
-	// Increase last index
-	durls.lIndex++
-
-	if durls.lIndex == len(durls.urls) {
-		durls.lIndex = 0
-	}
-
-	durls.lock.Unlock()
 
 	return r, err
 }
