@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -16,18 +17,36 @@ import (
 
 const cloudflareDNSURL = "https://cloudflare-dns.com/dns-query"
 
+type tlsClients struct {
+	sync.Mutex
+	clients map[uint16]chan *dns.Msg
+}
+
 type env struct {
 	httpClient *http.Client
 	dnsUrls    *dnsURLs
 	cache      *lru.Cache
 	shdCache   bool // Should we cache DNS responses or not
+	dot        bool // If DOT is enabled
+
+	tlsConn    *tls.Conn
+	connNotify chan int
+	query      chan *dns.Msg
+
+	// Contains map of dns queries and reply channels
+	tlsClients tlsClients
 }
+
+var dot bool
 
 func main() {
 	port := flag.String("port", "53", "Port for DNS server")
 	urls := flag.String("url", cloudflareDNSURL, "URLs for DoH resolvers seperated by comma")
 	addr := flag.String("addr", "127.0.0.1", "Address to bind")
 	shdCache := flag.Bool("cache", false, "DNS response caching")
+	dotls := flag.Bool("dot", false, "DNS Over TLS instead of DOH")
+	dotaddr := flag.String("dotaddr", "1.1.1.1", "DNS Over Tls Address(IP Address)")
+	dotname := flag.String("dotname", "cloudflare-dns.com", "DOT Server Name")
 
 	flag.Parse()
 
@@ -45,10 +64,24 @@ func main() {
 
 	dnsurls := &dnsURLs{
 		urls: strings.Split(*urls, ","),
-		lock: new(sync.Mutex),
 	}
 
-	e := env{httpClient: httpClient, dnsUrls: dnsurls, cache: cache, shdCache: *shdCache}
+	e := env{
+		httpClient: httpClient,
+		dnsUrls:    dnsurls,
+		cache:      cache,
+		shdCache:   *shdCache,
+		dot:        *dotls,
+	}
+
+	// If DOT is enabled instead of DOH, start go routines
+	if *dotls {
+		e.query = make(chan *dns.Msg, 1000)
+		e.tlsClients = tlsClients{
+			clients: make(map[uint16]chan *dns.Msg),
+		}
+		go e.makeTLSConnection(fmt.Sprintf("%s:853", *dotaddr), *dotname)
+	}
 
 	dns.HandleFunc(".", e.handleDNS)
 
@@ -91,7 +124,7 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (e *env) getAndSendResponse(w dns.ResponseWriter, r *dns.Msg, cacheKey string) {
-	respMsg, err := GetDNSResponse(r, e.httpClient, e.dnsUrls)
+	respMsg, err := e.GetDNSResponse(r, e.httpClient, e.dnsUrls)
 	if err != nil {
 		log.Printf("Something wrong with resp: %v", err)
 		return
