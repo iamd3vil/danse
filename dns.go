@@ -20,24 +20,26 @@ type DNSCache struct {
 
 // dnsURLs holds urls for multiple doh providers and the last doh provider used
 type dnsURLs struct {
+	sync.Mutex
+
 	// Slice of URLs
 	urls []string
 
 	// Last used index
 	lIndex int
-
-	// Mutex
-	lock *sync.Mutex
 }
 
 // GetDNSResponse contacts DOH provider and formats the reply into dns message
-func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.Msg, error) {
+func (e *env) GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.Msg, error) {
 	b, err := m.Pack()
 	if err != nil {
 		return &dns.Msg{}, err
 	}
+	if e.dot {
+		return e.sendDOTQuery(m)
+	}
 
-	durls.lock.Lock()
+	durls.Lock()
 
 	url := durls.urls[durls.lIndex]
 
@@ -48,7 +50,7 @@ func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.M
 		durls.lIndex = 0
 	}
 
-	durls.lock.Unlock()
+	durls.Unlock()
 
 	resp, err := httpClient.Post(url, "application/dns-message", bytes.NewBuffer(b))
 	if err != nil {
