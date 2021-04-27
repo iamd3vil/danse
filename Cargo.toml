@@ -10,3 +10,4 @@ tokio = { version = "1.5.0", features = ["full"] }
 trust-dns-proto = "0.20.2"
 reqwest = { version = "0.11.3", features = ["rustls-tls"] }
 bytes = "1"
+config = { version = "0.11", features = ["toml"] }

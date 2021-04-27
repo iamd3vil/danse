@@ -3,18 +3,25 @@ use trust_dns_proto::op::message::Message;
 use tokio::net::UdpSocket;
 use bytes::Bytes;
 use reqwest::Error;
+use std::time::Duration;
 
-const DEFAULT_RESOLVER: &str = "https://cloudflare-dns.com/dns-query";
+const DEFAULT_RESOLVER: &str = "https://dns.quad9.net/dns-query";
 
 #[derive(Clone)]
 pub struct Client {
     client: reqwest::Client,
+    settings: config::Config,
 }
 
 impl Client {
-    pub fn new() -> Self {
+    pub fn new(settings: config::Config) -> Self {
         Self {
-            client: reqwest::Client::builder().use_rustls_tls().build().unwrap(),
+            client: reqwest::Client::builder()
+                .use_rustls_tls()
+                .timeout(Duration::new(60, 0))
+                .build()
+                .unwrap(),
+            settings
         }
     }
 
@@ -24,7 +31,11 @@ impl Client {
             println!("Query: {}", query);
         }
         let body = Vec::from(buf);
-        match get_response(&self.client, DEFAULT_RESOLVER, body).await {
+        let url = match self.settings.get_str("resolver.address") {
+            Ok(addr) => addr,
+            Err(_) => String::from(DEFAULT_RESOLVER)
+        };
+        match get_response(&self.client, &url, body).await {
             Ok(res) => {
                 sock.send_to(&res, addr).await.unwrap();
                 ()
@@ -39,7 +50,14 @@ async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Resu
         .body(req)
         .header("content-type", "application/dns-message")
         .header("content-type", "application/dns-message")
-        .send().await?
-        .bytes().await?;
-    Ok(res)
+        .send().await;
+
+    match res {
+        Ok(res) => res.bytes().await,
+        // TODO(sarat): If POST is not allowed, fallback to `GET`.
+        Err(e) if e.status().unwrap() == reqwest::StatusCode::METHOD_NOT_ALLOWED => {
+            Err(e)
+        }
+        Err(e) => Err(e)
+    }
 }
