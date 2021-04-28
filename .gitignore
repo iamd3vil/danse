@@ -1,2 +1,2 @@
-vendor/
-danse
+target/
+config.toml
