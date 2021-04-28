@@ -6,20 +6,19 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let mut settings = Config::default();
-    settings.merge(File::with_name("config.toml")).expect("error while reading config.toml");
+    let settings = get_config("config.toml");    
 
     let bind_address = match settings.get_str("bind_address") {
         Ok(addr) => addr,
         Err(_) => "127.0.0.1:53".to_string()
     };
 
-    println!("bind address: {}", bind_address);
+    println!("Danse 🕺🏽 is starting at {}", bind_address);
 
     let sock = UdpSocket::bind(&bind_address).await?;
     let mut buf = [0; 4096];
 
-    let cl = client::Client::new(settings);
+    let cl = Arc::new(client::Client::new(settings));
     let r = Arc::new(sock);
 
     loop {
@@ -32,4 +31,10 @@ async fn main() -> io::Result<()> {
             c.process(&s, &buf[..len], addr).await;
         });
     }
+}
+
+fn get_config(path: &str) -> config::Config {
+    let mut settings = Config::default();
+    settings.merge(File::with_name(path)).expect("error while reading config.toml");
+    settings
 }

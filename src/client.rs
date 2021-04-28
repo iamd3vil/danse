@@ -1,16 +1,27 @@
 use std::net::SocketAddr;
-use trust_dns_proto::op::message::Message;
+use trust_dns_proto::{op::{message::Message, Query}, serialize::binary::BinEncodable};
 use tokio::net::UdpSocket;
 use bytes::Bytes;
 use reqwest::Error;
 use std::time::Duration;
+use lru::LruCache;
+use tokio::sync::Mutex;
+use chrono::prelude::*;
 
 const DEFAULT_RESOLVER: &str = "https://dns.quad9.net/dns-query";
+const DEFAULT_CACHE: bool = true;
 
-#[derive(Clone)]
 pub struct Client {
     client: reqwest::Client,
     settings: config::Config,
+    cache: Mutex<LruCache<String, CachedMsg>>
+}
+
+
+#[derive(Clone, Debug)]
+struct CachedMsg {
+    msg: Message,
+    timestamp: DateTime<Utc>,
 }
 
 impl Client {
@@ -21,27 +32,96 @@ impl Client {
                 .timeout(Duration::new(60, 0))
                 .build()
                 .unwrap(),
-            settings
+            cache: Mutex::new(LruCache::new(100)),
+            settings,
         }
     }
 
     pub async fn process(&self, sock: &UdpSocket, buf: &[u8], addr: SocketAddr) {
-        let msg = Message::from_vec(buf).unwrap();
-        for query in msg.queries() {
-            println!("Query: {}", query);
-        }
-        let body = Vec::from(buf);
-        let url = match self.settings.get_str("resolver.address") {
-            Ok(addr) => addr,
-            Err(_) => String::from(DEFAULT_RESOLVER)
+        let shd_cache = match self.settings.get_bool("cache") {
+            Ok(cache) => cache,
+            Err(_) => DEFAULT_CACHE
         };
-        match get_response(&self.client, &url, body).await {
-            Ok(res) => {
-                sock.send_to(&res, addr).await.unwrap();
-                ()
-            },
-            Err(err) => println!("error sending request to resolver: {}", err)
+        if !shd_cache {
+            let body = Vec::from(buf);
+            let url = match self.settings.get_str("resolver.address") {
+                Ok(addr) => addr,
+                Err(_) => String::from(DEFAULT_RESOLVER)
+            };
+            match get_response(&self.client, &url, body).await {
+                Ok(res) => {
+                    sock.send_to(&res, addr).await.unwrap();
+                },
+                Err(err) => println!("error sending request to resolver: {}", err)
+            }
+            return
         }
+        // Check cache if there is a response already.
+        let msg = Message::from_vec(buf).unwrap();
+        let data: Option<Vec<u8>> = match self.get_from_cache(msg.queries()).await {
+            Some(cached_msg) => {
+                // Check if the ttl is expired
+                let mut expired: bool = false;
+                for ans in cached_msg.msg.answers() {
+                    let diff = Utc::now() - cached_msg.timestamp;
+                    if diff.num_nanoseconds().unwrap() > ans.ttl() as i64 * 1000_000_000 {
+                        expired = true;
+                        break
+                    }
+                }
+                // If expired, pop the cache
+                if expired {
+                    self.pop_from_cache(cached_msg.msg.queries()).await;
+                    None
+                } else {
+                    // Change id and adjust ttl before sending.
+                    let respmsg = adjust_resp(cached_msg.msg, msg.id(), cached_msg.timestamp).await;
+                    Some(respmsg.to_bytes().unwrap())
+                }
+            },
+            None => None
+        };
+
+        match data {
+            Some(d) => {
+                sock.send_to(&d, addr).await.unwrap();
+            }
+            None => {
+                let body = Vec::from(buf);
+                let url = match self.settings.get_str("resolver.address") {
+                    Ok(addr) => addr,
+                    Err(_) => String::from(DEFAULT_RESOLVER)
+                };
+                match get_response(&self.client, &url, body).await {
+                    Ok(res) => {
+                        let ans = Message::from_vec(&res[..]).unwrap();
+                        self.put_in_cache(msg.queries(), ans).await;
+                        sock.send_to(&res, addr).await.unwrap();
+                    },
+                    Err(err) => println!("error sending request to resolver: {}", err)
+                }
+            }
+        }
+    }
+
+    async fn get_from_cache(&self, queries: &[Query]) -> Option<CachedMsg> {
+        // Make a string key out of queries
+        match self.cache.lock().await.get(&get_key(queries)) {
+            Some(b) => Some(b.to_owned()),
+            None => None
+        }
+    }
+
+    async fn pop_from_cache(&self, queries: &[Query]) {
+        self.cache.lock().await.pop(&get_key(queries));
+    }
+
+    async fn put_in_cache(&self, queries: &[Query], msg: Message) {
+        let cached_msg = CachedMsg{
+            msg: msg,
+            timestamp: Utc::now()
+        };
+        self.cache.lock().await.put(get_key(queries), cached_msg);
     }
 }
 
@@ -60,4 +140,25 @@ async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Resu
         }
         Err(e) => Err(e)
     }
+}
+
+async fn adjust_resp(msg: Message, id: u16,timestamp: DateTime<Utc>) -> Message {
+    let mut respmsg = msg.clone();
+    respmsg.set_id(id);
+
+    for ans in respmsg.answers_mut(){
+        let expires_at = timestamp + chrono::Duration::seconds(ans.ttl() as i64);
+        let ttl = (expires_at - Utc::now()).num_seconds();
+        ans.set_ttl(ttl as u32);
+    }
+    respmsg
+}
+
+fn get_key(queries: &[Query]) -> String {
+    let mut key = String::from("");
+    for q in queries {
+        key.push_str(&q.to_string());
+        key.push_str("/n");
+    }
+    key
 }
