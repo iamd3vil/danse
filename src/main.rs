@@ -13,7 +13,7 @@ async fn main() -> io::Result<()> {
         Err(_) => "127.0.0.1:53".to_string()
     };
 
-    println!("Danse 🕺🏽 is starting at {}", bind_address);
+    println!("Danse 🕺 is starting at {}", bind_address);
 
     let sock = UdpSocket::bind(&bind_address).await?;
     let mut buf = [0; 4096];

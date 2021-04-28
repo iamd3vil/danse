@@ -7,6 +7,7 @@ use std::time::Duration;
 use lru::LruCache;
 use tokio::sync::Mutex;
 use chrono::prelude::*;
+use base64::encode;
 
 const DEFAULT_RESOLVER: &str = "https://dns.quad9.net/dns-query";
 const DEFAULT_CACHE: bool = true;
@@ -126,6 +127,7 @@ impl Client {
 }
 
 async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Result<Bytes, Error> {
+    let encoded = encode(&req);
     let res = client.post(url)
         .body(req)
         .header("content-type", "application/dns-message")
@@ -134,9 +136,12 @@ async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Resu
 
     match res {
         Ok(res) => res.bytes().await,
-        // TODO(sarat): If POST is not allowed, fallback to `GET`.
         Err(e) if e.status().unwrap() == reqwest::StatusCode::METHOD_NOT_ALLOWED => {
-            Err(e)
+            let res = client.get(url)
+                .query(&[("dns", encoded)])
+                .header("content-type", "application/dns-message")
+                .send().await?.bytes().await?;
+            Ok(res)
         }
         Err(e) => Err(e)
     }
@@ -145,12 +150,11 @@ async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Resu
 async fn adjust_resp(msg: Message, id: u16,timestamp: DateTime<Utc>) -> Message {
     let mut respmsg = msg.clone();
     respmsg.set_id(id);
-
-    for ans in respmsg.answers_mut(){
+    respmsg.answers_mut().iter_mut().for_each(|ans| {
         let expires_at = timestamp + chrono::Duration::seconds(ans.ttl() as i64);
         let ttl = (expires_at - Utc::now()).num_seconds();
         ans.set_ttl(ttl as u32);
-    }
+    });
     respmsg
 }
 
