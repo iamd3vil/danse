@@ -65,7 +65,7 @@ impl Client {
                 let mut expired: bool = false;
                 for ans in cached_msg.msg.answers() {
                     let diff = Utc::now() - cached_msg.timestamp;
-                    if diff.num_nanoseconds().unwrap() > ans.ttl() as i64 * 1000_000_000 {
+                    if diff.num_nanoseconds().unwrap() > ans.ttl() as i64 * 1_000_000_000 {
                         expired = true;
                         break
                     }
@@ -107,10 +107,7 @@ impl Client {
 
     async fn get_from_cache(&self, queries: &[Query]) -> Option<CachedMsg> {
         // Make a string key out of queries
-        match self.cache.lock().await.get(&get_key(queries)) {
-            Some(b) => Some(b.to_owned()),
-            None => None
-        }
+        self.cache.lock().await.get(&get_key(queries)).map(|b| b.to_owned())
     }
 
     async fn pop_from_cache(&self, queries: &[Query]) {
@@ -119,7 +116,7 @@ impl Client {
 
     async fn put_in_cache(&self, queries: &[Query], msg: Message) {
         let cached_msg = CachedMsg{
-            msg: msg,
+            msg,
             timestamp: Utc::now()
         };
         self.cache.lock().await.put(get_key(queries), cached_msg);
@@ -148,7 +145,7 @@ async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Resu
 }
 
 async fn adjust_resp(msg: Message, id: u16,timestamp: DateTime<Utc>) -> Message {
-    let mut respmsg = msg.clone();
+    let mut respmsg = msg;
     respmsg.set_id(id);
     respmsg.answers_mut().iter_mut().for_each(|ans| {
         let expires_at = timestamp + chrono::Duration::seconds(ans.ttl() as i64);
