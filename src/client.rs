@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use chrono::prelude::*;
 use base64::encode;
 use resolvers::Resolvers;
+use log::info;
 
 const DEFAULT_RESOLVER: &str = "https://dns.quad9.net/dns-query";
 const DEFAULT_CACHE: bool = true;
@@ -60,6 +61,11 @@ impl Client {
     }
 
     pub async fn process(&self, sock: &UdpSocket, buf: &[u8], addr: SocketAddr) {
+        let msg = Message::from_vec(buf).unwrap();
+        match self.settings.get_bool("log_queries") {
+            Ok(log_queries) if log_queries == true => print_log(msg.queries()),
+            _ => ()
+        };
         let shd_cache = match self.settings.get_bool("cache") {
             Ok(cache) => cache,
             Err(_) => DEFAULT_CACHE
@@ -76,7 +82,6 @@ impl Client {
             return
         }
         // Check cache if there is a response already.
-        let msg = Message::from_vec(buf).unwrap();
         let data: Option<Vec<u8>> = match self.get_from_cache(msg.queries()).await {
             Some(cached_msg) => {
                 // Check if the ttl is expired
@@ -177,4 +182,10 @@ fn get_key(queries: &[Query]) -> String {
         key.push_str("/n");
     }
     key
+}
+
+fn print_log(queries: &[Query]) {
+    queries.iter().for_each(|q| {
+        info!("Query: {}", q.to_string());
+    });
 }

@@ -13,6 +13,13 @@ async fn main() -> io::Result<()> {
         Err(_) => "127.0.0.1:53".to_string()
     };
 
+    // Setup logger
+    let level = match settings.get_str("log_level") {
+        Ok(level) => level,
+        Err(_) => "info".to_string()
+    };
+    setup_logger(&level).unwrap();
+
     println!("Danse 🕺 is starting at {}", bind_address);
 
     let sock = UdpSocket::bind(&bind_address).await?;
@@ -20,6 +27,7 @@ async fn main() -> io::Result<()> {
 
     let cl = Arc::new(client::Client::new(settings));
     let r = Arc::new(sock);
+
 
     loop {
         let (len, addr) = r.recv_from(&mut buf).await?;
@@ -37,4 +45,25 @@ fn get_config(path: &str) -> config::Config {
     let mut settings = Config::default();
     settings.merge(File::with_name(path)).expect("error while reading config.toml");
     settings
+}
+
+fn setup_logger(level: &str) -> Result<(), fern::InitError> {
+    let lvl = match level {
+        "debug" => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Info,
+    };
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(lvl)
+        .chain(std::io::stdout())
+        .apply()?;
+    Ok(())
 }
