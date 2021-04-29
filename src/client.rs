@@ -8,6 +8,8 @@ use lru::LruCache;
 use tokio::sync::Mutex;
 use chrono::prelude::*;
 use base64::encode;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::Relaxed;
 
 const DEFAULT_RESOLVER: &str = "https://dns.quad9.net/dns-query";
 const DEFAULT_CACHE: bool = true;
@@ -15,7 +17,30 @@ const DEFAULT_CACHE: bool = true;
 pub struct Client {
     client: reqwest::Client,
     settings: config::Config,
+    resolvers: Resolvers,
     cache: Mutex<LruCache<String, CachedMsg>>
+}
+
+struct Resolvers {
+    resolvers: Vec<String>,
+    current_index: AtomicUsize,
+}
+
+impl Resolvers {
+    fn new(resolvers: Vec<String>) -> Self {
+        Self{
+            resolvers,
+            current_index: AtomicUsize::new(0),
+        }
+    }
+
+    fn get_url(&self) -> &String {
+        let prev_index = self.current_index.fetch_add(1, Relaxed);
+        if prev_index == self.resolvers.len() - 1 {
+            self.current_index.store(0, Relaxed);
+        }
+        &self.resolvers[prev_index]
+    }
 }
 
 
@@ -27,6 +52,18 @@ struct CachedMsg {
 
 impl Client {
     pub fn new(settings: config::Config) -> Self {
+        let urls =
+            match settings.get_array("resolver.urls") {
+                Ok(vals) => {
+                    vals.iter()
+                        .map(|val| val.to_string())
+                        .collect()
+                },
+                Err(_) => vec![DEFAULT_RESOLVER.to_string()]
+            };
+        
+        let resolvers = Resolvers::new(urls);
+
         Self {
             client: reqwest::Client::builder()
                 .use_rustls_tls()
@@ -34,8 +71,13 @@ impl Client {
                 .build()
                 .unwrap(),
             cache: Mutex::new(LruCache::new(100)),
+            resolvers,
             settings,
         }
+    }
+
+    fn get_url(&self) -> &String {
+        self.resolvers.get_url()
     }
 
     pub async fn process(&self, sock: &UdpSocket, buf: &[u8], addr: SocketAddr) {
@@ -45,10 +87,7 @@ impl Client {
         };
         if !shd_cache {
             let body = Vec::from(buf);
-            let url = match self.settings.get_str("resolver.address") {
-                Ok(addr) => addr,
-                Err(_) => String::from(DEFAULT_RESOLVER)
-            };
+            let url = self.get_url();
             match get_response(&self.client, &url, body).await {
                 Ok(res) => {
                     sock.send_to(&res, addr).await.unwrap();
@@ -89,10 +128,7 @@ impl Client {
             }
             None => {
                 let body = Vec::from(buf);
-                let url = match self.settings.get_str("resolver.address") {
-                    Ok(addr) => addr,
-                    Err(_) => String::from(DEFAULT_RESOLVER)
-                };
+                let url = self.get_url();
                 match get_response(&self.client, &url, body).await {
                     Ok(res) => {
                         let ans = Message::from_vec(&res[..]).unwrap();
