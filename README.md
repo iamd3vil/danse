@@ -15,10 +15,12 @@ bind_address = "127.0.0.1:5454"
 cache = true
 
 [resolver]
-address = "https://dns.quad9.net/dns-query"
+urls = ["https://dns.quad9.net/dns-query", "https://cloudflare-dns.com/dns-query"]
 ```
 
 ## TODO
 
 - [X] Caching
-- [ ] Load Balance to multiple DoH providers for improved privacy
+- [X] Load Balance to multiple DoH providers for improved privacy
+- [ ] Option to provide a bootstrap DNS server for resolving the given urls
+- [ ] Option to log queries
