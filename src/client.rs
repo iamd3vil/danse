@@ -1,3 +1,5 @@
+mod resolvers;
+
 use std::net::SocketAddr;
 use trust_dns_proto::{op::{message::Message, Query}, serialize::binary::BinEncodable};
 use tokio::net::UdpSocket;
@@ -8,8 +10,7 @@ use lru::LruCache;
 use tokio::sync::Mutex;
 use chrono::prelude::*;
 use base64::encode;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::Relaxed;
+use resolvers::Resolvers;
 
 const DEFAULT_RESOLVER: &str = "https://dns.quad9.net/dns-query";
 const DEFAULT_CACHE: bool = true;
@@ -20,29 +21,6 @@ pub struct Client {
     resolvers: Resolvers,
     cache: Mutex<LruCache<String, CachedMsg>>
 }
-
-struct Resolvers {
-    resolvers: Vec<String>,
-    current_index: AtomicUsize,
-}
-
-impl Resolvers {
-    fn new(resolvers: Vec<String>) -> Self {
-        Self{
-            resolvers,
-            current_index: AtomicUsize::new(0),
-        }
-    }
-
-    fn get_url(&self) -> &String {
-        let prev_index = self.current_index.fetch_add(1, Relaxed);
-        if prev_index == self.resolvers.len() - 1 {
-            self.current_index.store(0, Relaxed);
-        }
-        &self.resolvers[prev_index]
-    }
-}
-
 
 #[derive(Clone, Debug)]
 struct CachedMsg {
