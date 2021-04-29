@@ -67,6 +67,7 @@ impl Client {
         Self {
             client: reqwest::Client::builder()
                 .use_rustls_tls()
+                .trust_dns(true)
                 .timeout(Duration::new(60, 0))
                 .build()
                 .unwrap(),

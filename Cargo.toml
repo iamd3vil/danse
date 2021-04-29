@@ -8,7 +8,7 @@ edition = "2018"
 [dependencies]
 tokio = { version = "1.5.0", features = ["rt-multi-thread", "net", "sync", "macros"] }
 trust-dns-proto = "0.20.2"
-reqwest = { version = "0.11.3", features = ["rustls-tls"], default-features = false }
+reqwest = { version = "0.11.3", features = ["rustls-tls", "trust-dns"], default-features = false }
 bytes = "1"
 config = { version = "0.11", features = ["toml"] }
 lru = "0.6.5"
