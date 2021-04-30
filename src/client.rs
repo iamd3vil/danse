@@ -63,13 +63,10 @@ impl Client {
     pub async fn process(&self, sock: &UdpSocket, buf: &[u8], addr: SocketAddr) {
         let msg = Message::from_vec(buf).unwrap();
         match self.settings.get_bool("log_queries") {
-            Ok(log_queries) if log_queries == true => print_log(msg.queries()),
+            Ok(log_queries) if log_queries => print_log(msg.queries()),
             _ => ()
         };
-        let shd_cache = match self.settings.get_bool("cache") {
-            Ok(cache) => cache,
-            Err(_) => DEFAULT_CACHE
-        };
+        let shd_cache = self.settings.get_bool("cache").unwrap_or(DEFAULT_CACHE);
         if !shd_cache {
             let body = Vec::from(buf);
             let url = self.get_url();

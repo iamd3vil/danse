@@ -8,16 +8,10 @@ use std::sync::Arc;
 async fn main() -> io::Result<()> {
     let settings = get_config("config.toml");    
 
-    let bind_address = match settings.get_str("bind_address") {
-        Ok(addr) => addr,
-        Err(_) => "127.0.0.1:53".to_string()
-    };
+    let bind_address = settings.get_str("bind_address").unwrap_or("127.0.0.1:53".to_string());
 
     // Setup logger
-    let level = match settings.get_str("log_level") {
-        Ok(level) => level,
-        Err(_) => "info".to_string()
-    };
+    let level = settings.get_str("log_level").unwrap_or("info".to_string());
     setup_logger(&level).unwrap();
 
     println!("Danse 🕺 is starting at {}", bind_address);
