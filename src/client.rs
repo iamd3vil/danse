@@ -153,7 +153,7 @@ async fn get_response(client: &reqwest::Client, url: &str, req: Vec<u8>) -> Resu
 
     match res {
         Ok(res) => res.bytes().await,
-        Err(e) if e.status().unwrap() == reqwest::StatusCode::METHOD_NOT_ALLOWED => {
+        Err(e) if e.status() == Some(reqwest::StatusCode::METHOD_NOT_ALLOWED) => {
             let res = client.get(url)
                 .query(&[("dns", encoded)])
                 .header("content-type", "application/dns-message")
