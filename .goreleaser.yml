@@ -1,0 +1,40 @@
+before:
+  hooks:
+    - go mod download
+builds:
+- env:
+    - CGO_ENABLED=0
+  goos:
+    - freebsd
+    - linux
+    - darwin
+  goarch:
+    - amd64
+    - arm
+    - arm64
+  goarm:
+    - 6
+    - 7
+archives:
+- replacements:
+    darwin: Darwin
+    linux: Linux
+    freebsd: FreeBSD
+    386: i386
+    amd64: x86_64
+    arm: arm
+    arm64: arm64
+release:
+  github:
+    owner: iamd3vil
+    name: danse
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
