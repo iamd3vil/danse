@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"time"
 
@@ -33,8 +35,29 @@ func main() {
 		log.Fatalln("Couldn't create cache: ", err)
 	}
 
+	// Make a dialer which resolves url with bootstrap address.
+	dialer := &net.Dialer{
+		Resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{
+					Timeout: 5 * time.Second,
+				}
+				return d.DialContext(ctx, "udp", cfg.BootstrapAddress)
+			},
+		},
+	}
+
+	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	transport := http.DefaultTransport.(*http.Transport)
+	transport.DialContext = dialContext
+
 	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
+		Transport: transport,
 	}
 
 	dnsServer := &dns.Server{Addr: cfg.BindAddress, Net: "udp"}

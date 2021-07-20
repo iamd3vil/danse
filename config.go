@@ -12,11 +12,12 @@ type cfgResolver struct {
 }
 
 type Config struct {
-	BindAddress string      `koanf:"bind_address"`
-	Cache       bool        `koanf:"cache"`
-	LogLevel    string      `koanf:"log_level"`
-	LogQueries  bool        `koanf:"log_queries"`
-	Resolver    cfgResolver `koanf:"resolver"`
+	BindAddress      string      `koanf:"bind_address"`
+	Cache            bool        `koanf:"cache"`
+	LogLevel         string      `koanf:"log_level"`
+	LogQueries       bool        `koanf:"log_queries"`
+	Resolver         cfgResolver `koanf:"resolver"`
+	BootstrapAddress string      `koanf:"bootstrap_address"`
 }
 
 func initConfig(cfgPath string) (Config, error) {
@@ -24,8 +25,9 @@ func initConfig(cfgPath string) (Config, error) {
 
 	// Set default values
 	k.Load(confmap.Provider(map[string]interface{}{
-		"cache":        true,
-		"bind_address": "127.0.0.1:53",
+		"cache":             true,
+		"bind_address":      "127.0.0.1:53",
+		"bootstrap_address": "9.9.9.9:53",
 	}, "."), nil)
 
 	if err := k.Load(file.Provider(cfgPath), toml.Parser()); err != nil {
