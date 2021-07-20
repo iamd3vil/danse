@@ -1,0 +1,7 @@
+bind_address = "127.0.0.1:5454"
+cache = true
+log_level = "info"
+log_queries = true
+
+[resolver]
+urls = ["https://dns.quad9.net/dns-query", "https://cloudflare-dns.com/dns-query"]

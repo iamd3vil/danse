@@ -2,34 +2,30 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"math"
 	"net/http"
-	"strings"
-	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/miekg/dns"
 )
 
-const cloudflareDNSURL = "https://cloudflare-dns.com/dns-query"
-
 type env struct {
 	httpClient *http.Client
 	dnsUrls    *dnsURLs
 	cache      *lru.Cache
-	shdCache   bool // Should we cache DNS responses or not
+	cfg        Config
 }
 
 func main() {
-	port := flag.String("port", "53", "Port for DNS server")
-	urls := flag.String("url", cloudflareDNSURL, "URLs for DoH resolvers seperated by comma")
-	addr := flag.String("addr", "127.0.0.1", "Address to bind")
-	shdCache := flag.Bool("cache", false, "DNS response caching")
-
+	cfgPath := flag.String("config", "config.toml", "Path to config file")
 	flag.Parse()
+
+	cfg, err := initConfig(*cfgPath)
+	if err != nil {
+		log.Fatalf("error reading config: %v", err)
+	}
 
 	// Initialize cache
 	cache, err := lru.New(512)
@@ -41,14 +37,18 @@ func main() {
 		Timeout: 10 * time.Second,
 	}
 
-	dnsServer := &dns.Server{Addr: fmt.Sprintf("%s:%s", *addr, *port), Net: "udp"}
+	dnsServer := &dns.Server{Addr: cfg.BindAddress, Net: "udp"}
 
 	dnsurls := &dnsURLs{
-		urls: strings.Split(*urls, ","),
-		lock: new(sync.Mutex),
+		urls: cfg.Resolver.Urls,
 	}
 
-	e := env{httpClient: httpClient, dnsUrls: dnsurls, cache: cache, shdCache: *shdCache}
+	e := env{
+		httpClient: httpClient,
+		dnsUrls:    dnsurls,
+		cache:      cache,
+		cfg:        cfg,
+	}
 
 	dns.HandleFunc(".", e.handleDNS)
 
@@ -56,11 +56,17 @@ func main() {
 }
 
 func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
-	log.Println("Got DNS query for ", r.Question[0].String())
+	if len(r.Question) == 0 {
+		return
+	}
+
+	if e.cfg.LogQueries {
+		log.Println("Got DNS query for ", r.Question[0].String())
+	}
 
 	cacheKey := r.Question[0].String()
 	// Check if we should check cache or not
-	if !e.shdCache {
+	if !e.cfg.Cache {
 		e.getAndSendResponse(w, r, cacheKey)
 		return
 	}
@@ -72,12 +78,12 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	cResp := val.(DNSCache)
+	cResp := val.(DNSInCache)
 
 	// Check if this record is expired
 	ttl := minTTL(cResp.Msg)
 
-	if time.Now().Sub(cResp.CreatedAt) > ttl {
+	if time.Since(cResp.CreatedAt) > ttl {
 		e.getAndSendResponse(w, r, cacheKey)
 		return
 	}
@@ -87,19 +93,18 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 	resp.MsgHdr.Id = r.MsgHdr.Id
 
 	w.WriteMsg(adjustTTL(resp, cResp.CreatedAt))
-	return
 }
 
 func (e *env) getAndSendResponse(w dns.ResponseWriter, r *dns.Msg, cacheKey string) {
-	respMsg, err := GetDNSResponse(r, e.httpClient, e.dnsUrls)
+	respMsg, err := e.GetDNSResponse(r, e.httpClient, e.dnsUrls)
 	if err != nil {
 		log.Printf("Something wrong with resp: %v", err)
 		return
 	}
 
 	// Put it in cache
-	if e.shdCache {
-		dnsCache := DNSCache{Msg: respMsg, CreatedAt: time.Now()}
+	if e.cfg.Cache {
+		dnsCache := DNSInCache{Msg: respMsg, CreatedAt: time.Now()}
 		e.cache.Add(cacheKey, dnsCache)
 	}
 
@@ -123,7 +128,7 @@ func adjustTTL(m *dns.Msg, createdAt time.Time) *dns.Msg {
 	adj := *m
 	for i := 0; i < len(m.Answer); i++ {
 		expiresAt := createdAt.Add(time.Duration(m.Answer[i].Header().Ttl) * time.Second)
-		ttl := math.Round(expiresAt.Sub(time.Now()).Seconds())
+		ttl := math.Round(time.Until(expiresAt).Seconds())
 		adj.Answer[i].Header().Ttl = uint32(ttl)
 	}
 	return &adj

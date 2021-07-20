@@ -12,8 +12,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-// DNSCache is serialized and stored in the cache
-type DNSCache struct {
+// DNSInCache is serialized and stored in the cache
+type DNSInCache struct {
 	Msg       *dns.Msg
 	CreatedAt time.Time
 }
@@ -26,18 +26,17 @@ type dnsURLs struct {
 	// Last used index
 	lIndex int
 
-	// Mutex
-	lock *sync.Mutex
+	sync.Mutex
 }
 
 // GetDNSResponse contacts DOH provider and formats the reply into dns message
-func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.Msg, error) {
+func (e *env) GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.Msg, error) {
 	b, err := m.Pack()
 	if err != nil {
 		return &dns.Msg{}, err
 	}
 
-	durls.lock.Lock()
+	durls.Lock()
 
 	url := durls.urls[durls.lIndex]
 
@@ -48,7 +47,11 @@ func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.M
 		durls.lIndex = 0
 	}
 
-	durls.lock.Unlock()
+	durls.Unlock()
+
+	if e.cfg.LogQueries {
+		log.Printf("Sending to %s for query: %s", url, m.Question[0].String())
+	}
 
 	resp, err := httpClient.Post(url, "application/dns-message", bytes.NewBuffer(b))
 	if err != nil {
@@ -56,7 +59,7 @@ func GetDNSResponse(m *dns.Msg, httpClient *http.Client, durls *dnsURLs) (*dns.M
 	}
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("Response from DOH provider has status code: %d", resp.StatusCode)
-		return &dns.Msg{}, errors.New("Error from DOH provider")
+		return &dns.Msg{}, errors.New("error from DOH provider")
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)

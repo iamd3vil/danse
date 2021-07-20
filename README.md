@@ -6,19 +6,27 @@ This would allow any application which doesn't support DoH still use DoH. Danse 
 
 ## Usage
 
+```shell
+$ danse -config /etc/danse/config.toml
 ```
-Usage of ./danse:
-  -addr string
-        Address to bind (default "127.0.0.1")
-  -cache
-        DNS response caching
-  -port string
-        Port for DNS server (default "53")
-  -url string
-        URLs for DoH resolvers seperated by comma (default "https://cloudflare-dns.com/dns-query")
+
+Sample config:
+
+```toml
+bind_address = "127.0.0.1:5454"
+cache = true
+log_level = "info"
+log_queries = true
+
+[resolver]
+urls = ["https://dns.quad9.net/dns-query", "https://cloudflare-dns.com/dns-query"]
 ```
+
+A sample config file with all the fields can be found at `config.sample.toml`.
 
 ## TODO
 
 - [X] Caching
 - [X] Load Balance to multiple DoH providers for improved privacy
+- [X] Option to log queries
+- [ ] Option to provide a bootstrap DNS server for resolving the given urls
