@@ -1,2 +1,4 @@
-target/
+vendor/
+danse
 config.toml
+dist/
