@@ -1,18 +1,25 @@
 # Address for danse to listen on.
 bind_address = "127.0.0.1:5454"
 
-# Should the answers be cached according to ttl. Default is true.
-cache = true
-
-# Log level
-log_level = "info"
-
-# Logs all queries to stdout. Default is false.
-log_queries = true
-
 # Only used for resolving resolver url. No queries received by danse will be sent here. Default is 9.9.9.9:53
 bootstrap_address = "1.1.1.1:53"
 
 # Urls for resolvers.
 [resolver]
 urls = ["https://dns.quad9.net/dns-query", "https://cloudflare-dns.com/dns-query"]
+
+
+[cache]
+# Should the answers be cached according to ttl. Default is true.
+cache = true
+
+# Maximum records to cache.
+max_items = 10000
+
+# Config for logging
+[log]
+# Log level
+log_level = "info"
+
+# Logs all queries to stdout. Default is false.
+log_queries = true

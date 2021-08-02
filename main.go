@@ -3,34 +3,48 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"math"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/miekg/dns"
 )
 
+var buildString string
+
 type env struct {
-	httpClient *http.Client
-	dnsUrls    *dnsURLs
-	cache      *lru.Cache
-	cfg        Config
+	cache  *lru.Cache
+	cfg    Config
+	client DNSClient
 }
 
 func main() {
 	cfgPath := flag.String("config", "config.toml", "Path to config file")
+	version := flag.Bool("version", false, "Version")
 	flag.Parse()
+
+	if *version {
+		fmt.Println(buildString)
+		os.Exit(0)
+	}
 
 	cfg, err := initConfig(*cfgPath)
 	if err != nil {
 		log.Fatalf("error reading config: %v", err)
 	}
 
+	maxCacheItems := 512
+	if cfg.Cache.MaxItems != 0 {
+		maxCacheItems = cfg.Cache.MaxItems
+	}
+
 	// Initialize cache
-	cache, err := lru.New(512)
+	cache, err := lru.New(maxCacheItems)
 	if err != nil {
 		log.Fatalln("Couldn't create cache: ", err)
 	}
@@ -60,17 +74,17 @@ func main() {
 		Transport: transport,
 	}
 
-	dnsServer := &dns.Server{Addr: cfg.BindAddress, Net: "udp"}
-
-	dnsurls := &dnsURLs{
-		urls: cfg.Resolver.Urls,
+	dnsClient, err := NewDOHClient(httpClient, cfg.Resolver.Urls, cfg.Log.LogQueries)
+	if err != nil {
+		log.Fatalf("error creating doh client: %v", err)
 	}
 
+	dnsServer := &dns.Server{Addr: cfg.BindAddress, Net: "udp"}
+
 	e := env{
-		httpClient: httpClient,
-		dnsUrls:    dnsurls,
-		cache:      cache,
-		cfg:        cfg,
+		cache:  cache,
+		cfg:    cfg,
+		client: dnsClient,
 	}
 
 	dns.HandleFunc(".", e.handleDNS)
@@ -83,13 +97,13 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	if e.cfg.LogQueries {
+	if e.cfg.Log.LogQueries {
 		log.Println("Got DNS query for ", r.Question[0].String())
 	}
 
 	cacheKey := r.Question[0].String()
 	// Check if we should check cache or not
-	if !e.cfg.Cache {
+	if !e.cfg.Cache.Cache {
 		e.getAndSendResponse(w, r, cacheKey)
 		return
 	}
@@ -119,14 +133,14 @@ func (e *env) handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (e *env) getAndSendResponse(w dns.ResponseWriter, r *dns.Msg, cacheKey string) {
-	respMsg, err := e.GetDNSResponse(r, e.httpClient, e.dnsUrls)
+	respMsg, err := e.client.GetDNSResponse(r)
 	if err != nil {
 		log.Printf("Something wrong with resp: %v", err)
 		return
 	}
 
 	// Put it in cache
-	if e.cfg.Cache {
+	if e.cfg.Cache.Cache {
 		dnsCache := DNSInCache{Msg: respMsg, CreatedAt: time.Now()}
 		e.cache.Add(cacheKey, dnsCache)
 	}

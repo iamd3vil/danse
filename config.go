@@ -11,13 +11,22 @@ type cfgResolver struct {
 	Urls []string `koanf:"urls"`
 }
 
+type cfgCache struct {
+	Cache    bool `koanf:"cache"`
+	MaxItems int  `koanf:"max_items"`
+}
+
+type cfgLog struct {
+	LogLevel   string `koanf:"log_level"`
+	LogQueries bool   `koanf:"log_queries"`
+}
+
 type Config struct {
 	BindAddress      string      `koanf:"bind_address"`
-	Cache            bool        `koanf:"cache"`
-	LogLevel         string      `koanf:"log_level"`
-	LogQueries       bool        `koanf:"log_queries"`
-	Resolver         cfgResolver `koanf:"resolver"`
 	BootstrapAddress string      `koanf:"bootstrap_address"`
+	Cache            cfgCache    `koanf:"cache"`
+	Resolver         cfgResolver `koanf:"resolver"`
+	Log              cfgLog      `koanf:"log"`
 }
 
 func initConfig(cfgPath string) (Config, error) {
