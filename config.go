@@ -8,6 +8,7 @@ import (
 )
 
 type cfgResolver struct {
+	Type string   `koanf:"type"`
 	Urls []string `koanf:"urls"`
 }
 
@@ -34,9 +35,10 @@ func initConfig(cfgPath string) (Config, error) {
 
 	// Set default values
 	k.Load(confmap.Provider(map[string]interface{}{
-		"cache":             true,
+		"cache.cache":       true,
 		"bind_address":      "127.0.0.1:53",
 		"bootstrap_address": "9.9.9.9:53",
+		"resolver.type":     "doh",
 	}, "."), nil)
 
 	if err := k.Load(file.Provider(cfgPath), toml.Parser()); err != nil {

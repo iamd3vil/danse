@@ -43,10 +43,18 @@ func main() {
 		maxCacheItems = cfg.Cache.MaxItems
 	}
 
+	e := env{
+		cfg: cfg,
+	}
+
 	// Initialize cache
-	cache, err := lru.New(maxCacheItems)
-	if err != nil {
-		log.Fatalln("Couldn't create cache: ", err)
+	if cfg.Cache.Cache {
+		cache, err := lru.New(maxCacheItems)
+		if err != nil {
+			log.Fatalln("Couldn't create cache: ", err)
+		}
+
+		e.cache = cache
 	}
 
 	// Make a dialer which resolves url with bootstrap address.
@@ -66,26 +74,29 @@ func main() {
 		return dialer.DialContext(ctx, network, addr)
 	}
 
-	transport := http.DefaultTransport.(*http.Transport)
-	transport.DialContext = dialContext
+	var (
+		client DNSClient
+	)
 
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: transport,
+	switch cfg.Resolver.Type {
+	case "doh":
+		client, err = getDOHDnsClient(dialContext, cfg)
+		if err != nil {
+			log.Fatalf("Couldn't create DNS client: %v", err)
+		}
+
+		e.client = client
+	case "dot":
+		client, err = NewDOTClient(cfg.Resolver.Urls, dialer, cfg.Log.LogQueries)
+		if err != nil {
+			log.Fatalf("Couldn't create DNS client: %v", err)
+		}
+
+		e.client = client
 	}
 
-	dnsClient, err := NewDOHClient(httpClient, cfg.Resolver.Urls, cfg.Log.LogQueries)
-	if err != nil {
-		log.Fatalf("error creating doh client: %v", err)
-	}
-
+	// Start the DNS server.
 	dnsServer := &dns.Server{Addr: cfg.BindAddress, Net: "udp"}
-
-	e := env{
-		cache:  cache,
-		cfg:    cfg,
-		client: dnsClient,
-	}
 
 	dns.HandleFunc(".", e.handleDNS)
 
@@ -169,4 +180,16 @@ func adjustTTL(m *dns.Msg, createdAt time.Time) *dns.Msg {
 		adj.Answer[i].Header().Ttl = uint32(ttl)
 	}
 	return &adj
+}
+
+func getDOHDnsClient(dialContext func(ctx context.Context, network string, addr string) (net.Conn, error), cfg Config) (DNSClient, error) {
+	transport := http.DefaultTransport.(*http.Transport)
+	transport.DialContext = dialContext
+
+	httpClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+
+	return NewDOHClient(httpClient, cfg.Resolver.Urls, cfg.Log.LogQueries)
 }

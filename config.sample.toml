@@ -6,6 +6,11 @@ bootstrap_address = "1.1.1.1:53"
 
 # Urls for resolvers.
 [resolver]
+
+# Type of resolver. Can be doh or dot.
+type = "doh"
+
+# Resolver URLs.
 urls = ["https://dns.quad9.net/dns-query", "https://cloudflare-dns.com/dns-query"]
 
 

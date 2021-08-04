@@ -1,5 +1,6 @@
 BIN := danse
 DIR := dist
+GOBIN := go
 
 LAST_COMMIT := $(shell git rev-parse --short HEAD)
 LAST_COMMIT_DATE := $(shell git show -s --format=%ci ${LAST_COMMIT})
@@ -9,7 +10,7 @@ BUILDSTR := ${VERSION} (Commit: ${LAST_COMMIT_DATE} (${LAST_COMMIT}), Build: $(s
 .PHONY: build
 build:
 	mkdir -p ${DIR}
-	CGO_ENABLED=0 go build -o ${DIR}/${BIN} --ldflags="-X 'main.buildString=${BUILDSTR}'"
+	CGO_ENABLED=0 ${GOBIN} build -o ${DIR}/${BIN} --ldflags="-X 'main.buildString=${BUILDSTR}'"
 	cp ${DIR}/${BIN} .
 
 run: build
