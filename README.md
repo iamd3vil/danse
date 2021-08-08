@@ -1,8 +1,8 @@
 # Danse
 
-Danse is a DNS resolver which receives packets over conventional DNS(UDP) and resolves it by talking to another resolver over DNS over HTTPS(DoH) or DNS Over TLS(DoT). DoH/DoT would reduce any snooping by ISP or any middlemen since the requests would be encrypted.
+Danse is a DNS resolver which receives packets over conventional DNS(UDP) and resolves it by talking to another resolver over DNS over HTTPS(DoH) or DNS Over TLS(DoT) or DNSCrypt. DoH/DoT/DNSCrypt would reduce any snooping by ISP or any middlemen since the requests would be encrypted.
 
-This would allow any application which doesn't support DoH/DoT still use DoH/DoT. Danse is supposed to be run locally or on a local network. There is no point running this over internet since DNS queries then wouldn't be encrypted between your device and Danse.
+This would allow any application which doesn't support DoH/DoT/DNSCrypt still use DoH/DoT/DNSCrypt. Danse is supposed to be run locally or on a local network. There is no point running this over internet since DNS queries then wouldn't be encrypted between your device and Danse.
 
 ## Usage
 
@@ -22,7 +22,7 @@ bootstrap_address = "1.1.1.1:53"
 # Urls for resolvers.
 [resolver]
 
-# Type of resolver. Can be doh or dot.
+# Type of resolver. Can be doh or dot or dnscrypt.
 type = "doh"
 
 # Resolver URLs.

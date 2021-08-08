@@ -93,6 +93,13 @@ func main() {
 		}
 
 		e.client = client
+	case "dnscrypt":
+		client, err := NewDNSCryptClient(cfg.Resolver.Urls, cfg.Log.LogQueries)
+		if err != nil {
+			log.Fatalf("Couldn't create DNSCrypt client: %v", err)
+		}
+
+		e.client = client
 	}
 
 	// Start the DNS server.

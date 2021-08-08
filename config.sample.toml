@@ -7,7 +7,7 @@ bootstrap_address = "1.1.1.1:53"
 # Urls for resolvers.
 [resolver]
 
-# Type of resolver. Can be doh or dot.
+# Type of resolver. Can be doh or dot or dnscrypt.
 type = "doh"
 
 # Resolver URLs.

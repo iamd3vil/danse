@@ -42,7 +42,7 @@ func (c *DOTClient) GetDNSResponse(msg *dns.Msg) (*dns.Msg, error) {
 
 	var r *dns.Msg
 
-	makeconn := false
+	var makeconn bool
 	for i := 0; i < 5; i++ {
 		conn, err := c.getConn(url, makeconn)
 		if err != nil {
@@ -54,7 +54,6 @@ func (c *DOTClient) GetDNSResponse(msg *dns.Msg) (*dns.Msg, error) {
 			makeconn = true
 			continue
 		}
-		makeconn = false
 		break
 	}
 	return r, nil
